@@ -149,7 +149,7 @@ if choice == "Create Work Order":
                             cursor.execute('INSERT INTO attachments (report_id, image_type, image_data) VALUES (?, ?, ?)', (report_id, 'Repair', b64))
                     
                     conn.commit()
-                    st.success(f#🎉 Work Order #{report_id} for {customer_name} successfully saved!")
+                    st.success(f"🎉 Work Order #{report_id} for {customer_name} successfully saved!")
                 except sqlite3.IntegrityError:
                     st.error(f"❌ Database Error: A work order with Report ID '{report_id}' already exists.")
                 finally:
