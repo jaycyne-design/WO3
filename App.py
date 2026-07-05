@@ -1,15 +1,4 @@
 import streamlit as st
-import subprocess
-import sys
-
-# --- FORCED DEPENDENCY INSTALLATION ---
-# This forces Streamlit to install the Google library directly if it's missing
-try:
-    import google.generativeai as genai
-except ModuleNotFoundError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "google-generativeai"])
-    import google.generativeai as genai
-
 import sqlite3
 import pandas as pd
 import base64
@@ -17,6 +6,8 @@ from datetime import datetime
 from PIL import Image
 import io
 import json
+import google.generativeai as genai
+
 
 
 # Import Google GenAI library
