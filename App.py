@@ -102,7 +102,7 @@ def parse_work_order_with_ai(uploaded_file, api_key):
 
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="Smart Work Orders", layout="wide")
-st.title("🔧 Smart Work Order AI Matrix")
+st.title("🔧 Kaizen Work Order")
 
 # Securely grab the API Key from Streamlit Secrets or a Sidebar fallback input
 api_key = st.secrets.get("GEMINI_API_KEY", "")
