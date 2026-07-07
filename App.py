@@ -229,47 +229,6 @@ if choice == "Scan & Create":
                     conn.close()
 
 
-        st.write("---")
-        st.subheader("📸 Step 3: Add On-Site Repair Images")
-        repair_pics = st.file_uploader("Upload additional photos of physical machine parts/repairs", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
-
-        submit_btn = st.form_submit_button("💾 Commit Approved Data to Database")
-        
-        if submit_btn:
-            if not report_id or not customer_name:
-                st.error("❌ Cannot submit: Report ID and Customer Name cannot be empty.")
-            else:
-                conn = get_connection()
-                cursor = conn.cursor()
-                try:
-                    # Save main card data
-                    cursor.execute('''
-                        INSERT INTO service_reports VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (report_id, customer_name, date_created, brand, model, serial, truck_num, billable_hours, date_completed, issue, diagnosis, actions))
-                    
-                    # Save extracted parts dynamically
-                    if "parts" in fd and fd["parts"]:
-                        for part in fd["parts"]:
-                            cursor.execute('INSERT INTO parts_consumables (report_id, part_number, quantity, description) VALUES (?, ?, ?, ?)',
-                                           (report_id, part.get("part_number", ""), part.get("quantity", 1), part.get("description", "")))
-                    
-                    # Save original document image attachment automatically
-                    if main_doc:
-                        cursor.execute('INSERT INTO attachments (report_id, image_type, image_data) VALUES (?, ?, ?)', (report_id, 'Work Order', image_to_base64(main_doc)))
-                    
-                    # Save supplemental progress files
-                    if repair_pics:
-                        for f in repair_pics:
-                            cursor.execute('INSERT INTO attachments (report_id, image_type, image_data) VALUES (?, ?, ?)', (report_id, 'Repair', image_to_base64(f)))
-                    
-                    conn.commit()
-                    st.success(f"🎉 Complete record for Ticket #{report_id} successfully finalized in your database!")
-                    st.session_state.form_data = {} # Clear cache
-                except sqlite3.IntegrityError:
-                    st.error(f"❌ Database Key Conflict: A ticket with ID '{report_id}' already exists.")
-                finally:
-                    conn.close()
-
 elif choice == "View & Search":
     st.header("🔍 Database Viewer")
     conn = get_connection()
