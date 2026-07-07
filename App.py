@@ -138,7 +138,7 @@ if choice == "Scan & Create":
     # Fallback to defaults if AI hasn't scanned anything yet
     fd = st.session_state.form_data
     
-    with st.form("main_verify_form"):
+        with st.form("main_verify_form"):
         col1, col2, col3 = st.columns(3)
         with col1:
             report_id = st.text_input("Report ID / Ticket #", value=str(fd.get("report_id", "")))
@@ -157,6 +157,77 @@ if choice == "Scan & Create":
         issue = st.text_area("Extracted Issue", value=str(fd.get("issue", "")))
         diagnosis = st.text_area("Extracted Diagnosis", value=str(fd.get("diagnosis", "")))
         actions = st.text_area("Extracted Action Logs", value=str(fd.get("actions", "")))
+
+        # --- NEW: PARTS VERIFICATION SECTION ---
+        st.write("---")
+        st.subheader("⚙️ Step 1.5: Verify Extracted Parts & Consumables")
+        
+        # Convert extracted parts list into a pandas DataFrame for the UI editor
+        extracted_parts = fd.get("parts", [])
+        if not extracted_parts:
+            # Fallback empty row structure if AI didn't catch any parts
+            extracted_parts = [{"quantity": 1, "description": "", "part_number": ""}]
+            
+        parts_df = pd.DataFrame(extracted_parts)
+        
+        # Display an editable table inside the form
+        edited_parts_df = st.data_editor(
+            parts_df, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            column_config={
+                "quantity": st.column_config.NumberColumn("Qty", min_value=1, step=1, default=1),
+                "part_number": st.column_config.TextColumn("Part Number"),
+                "description": st.column_config.TextColumn("Description")
+            }
+        )
+
+        st.write("---")
+        st.subheader("📸 Step 3: Add On-Site Repair Images")
+        repair_pics = st.file_uploader("Upload additional photos of physical machine parts/repairs", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
+
+        submit_btn = st.form_submit_button("💾 Commit Approved Data to Database")
+        
+        if submit_btn:
+            if not report_id or not customer_name:
+                st.error("❌ Cannot submit: Report ID and Customer Name cannot be empty.")
+            else:
+                conn = get_connection()
+                cursor = conn.cursor()
+                try:
+                    # Save main card data
+                    cursor.execute('''
+                        INSERT INTO service_reports VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (report_id, customer_name, date_created, brand, model, serial, truck_num, billable_hours, date_completed, issue, diagnosis, actions))
+                    
+                    # --- UPDATED: Save edited parts data from the data_editor ---
+                    final_parts_list = edited_parts_df.to_dict(orient="records")
+                    for part in final_parts_list:
+                        # Ensure we don't save completely blank rows accidentally added by user
+                        if part.get("part_number") or part.get("description"):
+                            cursor.execute('''
+                                INSERT INTO parts_consumables (report_id, part_number, quantity, description) 
+                                VALUES (?, ?, ?, ?)
+                            ''', (report_id, str(part.get("part_number", "")), int(part.get("quantity", 1)), str(part.get("description", ""))))
+                    
+                    # Save original document image attachment automatically
+                    if main_doc:
+                        cursor.execute('INSERT INTO attachments (report_id, image_type, image_data) VALUES (?, ?, ?)', (report_id, 'Work Order', image_to_base64(main_doc)))
+                    
+                    # Save supplemental progress files
+                    if repair_pics:
+                        for f in repair_pics:
+                            cursor.execute('INSERT INTO attachments (report_id, image_type, image_data) VALUES (?, ?, ?)', (report_id, 'Repair', image_to_base64(f)))
+                    
+                    conn.commit()
+                    st.success(f"🎉 Complete record for Ticket #{report_id} successfully finalized in your database!")
+                    st.session_state.form_data = {} # Clear cache
+                    st.rerun() # Refresh app states cleanly
+                except sqlite3.IntegrityError:
+                    st.error(f"❌ Database Key Conflict: A ticket with ID '{report_id}' already exists.")
+                finally:
+                    conn.close()
+
 
         st.write("---")
         st.subheader("📸 Step 3: Add On-Site Repair Images")
