@@ -137,8 +137,7 @@ if choice == "Scan & Create":
 
     # Fallback to defaults if AI hasn't scanned anything yet
     fd = st.session_state.form_data
-    
-        with st.form("main_verify_form"):
+    with st.form("main_verify_form"):
         col1, col2, col3 = st.columns(3)
         with col1:
             report_id = st.text_input("Report ID / Ticket #", value=str(fd.get("report_id", "")))
