@@ -127,5 +127,5 @@ def parse_work_order_with_ai(uploaded_file, api_key):
     with st.spinner("🤖 AI is reading your handwritten work order..."):
         try:
             response = model.generate_content([prompt, image])
-            raw_text = response.text.replace("
+            raw_text = response.text.replace(")
 
