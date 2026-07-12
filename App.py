@@ -55,9 +55,15 @@ init_db()
 def get_connection():
     return sqlite3.connect(DB_FILE)
 
-def image_to_base64(uploaded_file):
+# --- IMAGE STORAGE HELPERS ---
+def file_to_base64(uploaded_file):
     if uploaded_file is not None:
-        return base64.b64encode(uploaded_file.getvalue()).decode()
+        try:
+            uploaded_file.seek(0)  # Reset stream pointer
+            return base64.b64encode(uploaded_file.getvalue()).decode()
+        except Exception as e:
+            st.error(f"Error encoding image string: {e}")
+            return None
     return None
 
 def base64_to_image(base64_str):
@@ -73,6 +79,7 @@ def show_success_popup(ticket_id):
     st.write(f"🎉 Complete record for Ticket **#{ticket_id}** has been successfully saved to the database!")
     if st.button("OK", use_container_width=True):
         st.session_state.form_data = {}
+        st.session_state.main_doc_b64 = None  # Clear the persistent image cache
         if "form_reset_counter" not in st.session_state:
             st.session_state.form_reset_counter = 0
         st.session_state.form_reset_counter += 1
@@ -85,6 +92,7 @@ def parse_work_order_with_ai(uploaded_file, api_key):
         return None
         
     genai.configure(api_key=api_key)
+    uploaded_file.seek(0)
     image = Image.open(uploaded_file)
     
     prompt = """
@@ -127,13 +135,10 @@ def parse_work_order_with_ai(uploaded_file, api_key):
     with st.spinner("🤖 AI is reading your handwritten work order..."):
         try:
             response = model.generate_content([prompt, image])
-            
-            # --- FIXED AND MULTI-LINE SAFE STRING REPLACEMENT ---
             cleaned_text = response.text
             cleaned_text = cleaned_text.replace('```json', '')
             cleaned_text = cleaned_text.replace('```', '')
             cleaned_text = cleaned_text.strip()
-            
             return json.loads(cleaned_text)
         except Exception as e:
             st.error(f"AI Extraction Failed: {e}")
@@ -142,6 +147,14 @@ def parse_work_order_with_ai(uploaded_file, api_key):
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="Smart Work Orders", layout="wide")
 st.title("🔧 Kaizen Work Order System")
+
+# Initialize session state tracking properties
+if "main_doc_b64" not in st.session_state:
+    st.session_state.main_doc_b64 = None
+if "form_data" not in st.session_state:
+    st.session_state.form_data = {}
+if "form_reset_counter" not in st.session_state:
+    st.session_state.form_reset_counter = 0
 
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 if not api_key:
@@ -153,23 +166,29 @@ choice = st.sidebar.selectbox("Navigation Menu", menu)
 if choice == "Scan & Create":
     st.header("📸 Step 1: Upload Paper Work Order Scan")
     
-    if "form_data" not in st.session_state:
-        st.session_state.form_data = {}
-    if "form_reset_counter" not in st.session_state:
-        st.session_state.form_reset_counter = 0
+    # --- FIXED: Wrapping Step 1 in its own form forces Streamlit to lock the picture stream ---
+    with st.form("uploader_form"):
+        main_doc = st.file_uploader("Drop a photo or scan of the work order here:", type=['png', 'jpg', 'jpeg'], key=f"uploader_{st.session_state.form_reset_counter}")
+        scan_btn = st.form_submit_button("✨ Run AI Extraction Scan", use_container_width=True)
         
-    main_doc = st.file_uploader("Drop a photo or scan of the work order here:", type=['png', 'jpg', 'jpeg'], key=f"uploader_{st.session_state.form_reset_counter}")
-    
-    if main_doc:
-        st.image(main_doc, caption="Uploaded Original Document", width=400)
-        if st.button("✨ Run AI Extraction Scan", use_container_width=True):
-            if not api_key:
-                st.warning("Please add your Gemini API Key in the sidebar first!")
+        if scan_btn:
+            if not main_doc:
+                st.warning("⚠️ Please select an image from your gallery first!")
+            elif not api_key:
+                st.warning("⚠️ Please add your Gemini API Key in the sidebar first!")
             else:
+                # Process and safely save image to memory immediately upon form submission
+                st.session_state.main_doc_b64 = file_to_base64(main_doc)
                 extracted = parse_work_order_with_ai(main_doc, api_key)
                 if extracted:
                     st.session_state.form_data = extracted
                     st.success("🎉 Data successfully extracted below! Please verify accuracy.")
+
+    # Show a small preview if the image is successfully loaded in session memory
+    if st.session_state.main_doc_b64:
+        preview_img = base64_to_image(st.session_state.main_doc_b64)
+        if preview_img:
+            st.image(preview_img, caption="Active Selected Document Buffer", width=300)
 
     st.write("---")
     st.header("📝 Step 2: Verify & Edit Extracted Data")
@@ -251,6 +270,10 @@ if choice == "Scan & Create":
                         INSERT INTO service_reports VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (report_id, customer_name, date_created, brand, model, serial, truck_num, truck_hours, final_billable_hours, date_completed, issue, diagnosis, actions))
                     
+                    # Save main work order document image using persistent session cache string
+                    if st.session_state.main_doc_b64:
+                        cursor.execute('INSERT INTO attachments (report_id, image_type, image_data) VALUES (?, ?, ?)', (report_id, 'Work Order', st.session_state.main_doc_b64))
+                    
                     final_parts_list = edited_parts_df.to_dict(orient="records")
                     for part in final_parts_list:
                         if part.get("part_number") or part.get("description"):
@@ -259,12 +282,11 @@ if choice == "Scan & Create":
                                 VALUES (?, ?, ?, ?)
                             ''', (report_id, str(part.get("part_number", "")), int(part.get("quantity", 1)), str(part.get("description", ""))))
                     
-                    if main_doc:
-                        cursor.execute('INSERT INTO attachments (report_id, image_type, image_data) VALUES (?, ?, ?)', (report_id, 'Work Order', image_to_base64(main_doc)))
-                    
                     if repair_pics:
                         for f in repair_pics:
-                            cursor.execute('INSERT INTO attachments (report_id, image_type, image_data) VALUES (?, ?, ?)', (report_id, 'Repair', image_to_base64(f)))
+                            img_b64 = file_to_base64(f)
+                            if img_b64:
+                                cursor.execute('INSERT INTO attachments (report_id, image_type, image_data) VALUES (?, ?, ?)', (report_id, 'Repair', img_b64))
                     
                     conn.commit()
                     show_success_popup(report_id)
@@ -375,5 +397,6 @@ elif choice == "View & Advanced Search":
                 else:
                     st.info("No file attachments linked with this ticket.")
     conn.close()
+
 
 
