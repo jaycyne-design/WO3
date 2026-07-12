@@ -178,3 +178,4 @@ def ask_gemini_to_query_db(user_question, api_key):
     try:
         sql_response = model.generate_content(sql_prompt)
         generated_sql = sql_response.text.strip().replace('```sql', '').replace('```', '')
+
